@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"sort"
 
 	"golang.org/x/exp/maps"
@@ -12,11 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/env"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	"github.com/argoproj/argo-workflows/v3/pkg/apis/workflow"
 	wfv1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/argoproj/argo-workflows/v3/util/slice"
 	"github.com/argoproj/argo-workflows/v3/workflow/common"
 	"github.com/argoproj/argo-workflows/v3/workflow/controller/indexes"
 	"github.com/argoproj/argo-workflows/v3/workflow/util"
@@ -27,10 +27,9 @@ const artifactGCComponent = "artifact-gc"
 // artifactGCEnabled is a feature flag to globally disabled artifact GC in case of emergency
 var artifactGCEnabled, _ = env.GetBool("ARGO_ARTIFACT_GC_ENABLED", true)
 
-func (woc *wfOperationCtx) garbageCollectArtifacts(ctx context.Context) error {
-
+func (woc *wfOperationCtx) addArtifactGCFinalizer() {
 	if !artifactGCEnabled {
-		return nil
+		return
 	}
 
 	if woc.wf.Status.ArtifactGCStatus == nil {
@@ -39,9 +38,9 @@ func (woc *wfOperationCtx) garbageCollectArtifacts(ctx context.Context) error {
 
 	// only do Artifact GC if we have a Finalizer for it (i.e. Artifact GC is configured for this Workflow
 	// and there's work left to do for it)
-	if !slice.ContainsString(woc.wf.Finalizers, common.FinalizerArtifactGC) {
+	if !slices.Contains(woc.wf.Finalizers, common.FinalizerArtifactGC) {
 		if woc.wf.Status.ArtifactGCStatus.NotSpecified {
-			return nil // we already verified it's not required for this workflow
+			return // we already verified it's not required for this workflow
 		}
 		if woc.HasArtifactGC() {
 			woc.log.Info("adding artifact GC finalizer")
@@ -51,6 +50,12 @@ func (woc *wfOperationCtx) garbageCollectArtifacts(ctx context.Context) error {
 		} else {
 			woc.wf.Status.ArtifactGCStatus.NotSpecified = true
 		}
+	}
+}
+
+func (woc *wfOperationCtx) garbageCollectArtifacts(ctx context.Context) error {
+
+	if !artifactGCEnabled {
 		return nil
 	}
 
@@ -174,10 +179,7 @@ func (woc *wfOperationCtx) processArtifactGCStrategy(ctx context.Context, strate
 			woc.log.Errorf("Was unable to obtain node for %s", artifactSearchResult.NodeID)
 			return fmt.Errorf("can't process Artifact GC Strategy %s: node ID %q not found in Status??", strategy, artifactSearchResult.NodeID)
 		}
-		templateName := node.TemplateName
-		if templateName == "" && node.GetTemplateRef() != nil {
-			templateName = node.GetTemplateRef().Template
-		}
+		templateName := util.GetTemplateFromNode(*node)
 		if templateName == "" {
 			return fmt.Errorf("can't process Artifact GC Strategy %s: node %+v has an unnamed template", strategy, node)
 		}
@@ -429,7 +431,8 @@ func (woc *wfOperationCtx) createArtifactGCPod(ctx context.Context, strategy wfv
 			OwnerReferences: ownerReferences,
 		},
 		Spec: corev1.PodSpec{
-			Volumes: volumes,
+			Volumes:         volumes,
+			SecurityContext: common.MinimalPodSC(),
 			Containers: []corev1.Container{
 				{
 					Name:            common.MainContainerName,
@@ -442,14 +445,7 @@ func (woc *wfOperationCtx) createArtifactGCPod(ctx context.Context, strategy wfv
 					// if this pod is breached by an attacker we:
 					// * prevent installation of any new packages
 					// * modification of the file-system
-					SecurityContext: &corev1.SecurityContext{
-						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-						Privileged:               pointer.Bool(false),
-						RunAsNonRoot:             pointer.Bool(true),
-						RunAsUser:                pointer.Int64Ptr(8737),
-						ReadOnlyRootFilesystem:   pointer.Bool(true),
-						AllowPrivilegeEscalation: pointer.Bool(false),
-					},
+					SecurityContext: common.MinimalCtrSC(),
 					// if this pod is breached by an attacker these limits prevent excessive CPU and memory usage
 					Resources: corev1.ResourceRequirements{
 						Limits: map[corev1.ResourceName]resource.Quantity{
@@ -464,7 +460,7 @@ func (woc *wfOperationCtx) createArtifactGCPod(ctx context.Context, strategy wfv
 					VolumeMounts: volumeMounts,
 				},
 			},
-			AutomountServiceAccountToken: pointer.Bool(true),
+			AutomountServiceAccountToken: ptr.To(true),
 			RestartPolicy:                corev1.RestartPolicyNever,
 		},
 	}
@@ -512,7 +508,6 @@ func (woc *wfOperationCtx) processArtifactGCCompletion(ctx context.Context) erro
 		return fmt.Errorf("failed to get pods from informer: %w", err)
 	}
 
-	anyPodSuccess := false
 	for _, obj := range pods {
 		pod := obj.(*corev1.Pod)
 		if pod.Labels[common.LabelKeyComponent] != artifactGCComponent { // make sure it's an Artifact GC Pod
@@ -538,10 +533,8 @@ func (woc *wfOperationCtx) processArtifactGCCompletion(ctx context.Context) erro
 			if err != nil {
 				return err
 			}
+
 			woc.wf.Status.ArtifactGCStatus.SetArtifactGCPodRecouped(pod.Name, true)
-			if phase == corev1.PodSucceeded {
-				anyPodSuccess = true
-			}
 			woc.updated = true
 		}
 	}
@@ -552,11 +545,12 @@ func (woc *wfOperationCtx) processArtifactGCCompletion(ctx context.Context) erro
 		removeFinalizer = woc.wf.Status.ArtifactGCStatus.AllArtifactGCPodsRecouped()
 	} else {
 		// check if all artifacts have been deleted and if so remove Finalizer
-		removeFinalizer = anyPodSuccess && woc.allArtifactsDeleted()
+		removeFinalizer = woc.allArtifactsDeleted()
 	}
 	if removeFinalizer {
 		woc.log.Infof("no remaining artifacts to GC, removing artifact GC finalizer (forceFinalizerRemoval=%v)", forceFinalizerRemoval)
-		woc.wf.Finalizers = slice.RemoveString(woc.wf.Finalizers, common.FinalizerArtifactGC)
+		woc.wf.Finalizers = slices.DeleteFunc(woc.wf.Finalizers,
+			func(x string) bool { return x == common.FinalizerArtifactGC })
 		woc.updated = true
 	}
 	return nil
@@ -608,7 +602,7 @@ func (woc *wfOperationCtx) processCompletedArtifactGCPod(ctx context.Context, po
 	strategy := wfv1.ArtifactGCStrategy(strategyStr)
 
 	if pod.Status.Phase == corev1.PodFailed {
-		errMsg := fmt.Sprintf("Artifact Garbage Collection failed for strategy %s, pod %s exited with non-zero exit code: check pod logs for more information", pod.Name, strategy)
+		errMsg := fmt.Sprintf("Artifact Garbage Collection failed for strategy %s, pod %s exited with non-zero exit code: check pod logs for more information", strategy, pod.Name)
 		woc.addArtGCCondition(errMsg)
 		woc.addArtGCEvent(errMsg)
 	}

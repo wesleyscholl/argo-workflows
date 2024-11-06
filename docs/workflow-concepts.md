@@ -26,13 +26,13 @@ kind: Workflow
 metadata:
   generateName: hello-world-  # Name of this Workflow
 spec:
-  entrypoint: whalesay        # Defines "whalesay" as the "main" template
+  entrypoint: hello-world     # Defines "hello-world" as the "main" template
   templates:
-  - name: whalesay            # Defining the "whalesay" template
+  - name: hello-world         # Defines the "hello-world" template
     container:
-      image: docker/whalesay
-      command: [cowsay]
-      args: ["hello world"]   # This template runs "cowsay" in the "whalesay" image with arguments "hello world"
+      image: busybox
+      command: [echo]
+      args: ["hello world"]   # This template runs "echo" in the "busybox" image with arguments "hello world"
 ```
 
 ### `template` Types
@@ -50,10 +50,10 @@ Perhaps the most common template type, it will schedule a Container. The spec of
 Example:
 
 ```yaml
-  - name: whalesay
+  - name: hello-world
     container:
-      image: docker/whalesay
-      command: [cowsay]
+      image: busybox
+      command: [echo]
       args: ["hello world"]
 ```
 
@@ -112,7 +112,7 @@ These templates are used to invoke/call other templates and provide execution co
 
 ##### [Steps](fields.md#workflowstep)
 
-A steps template allows you to define your tasks in a series of steps. The structure of the template is a "list of lists". Outer lists will run sequentially and inner lists will run in parallel. If you want to run inner lists one by one, use the [Synchronization](fields.md#synchronization) feature. You can set a wide array of options to control execution, such as [`when:` clauses to conditionally execute a step](https://raw.githubusercontent.com/argoproj/argo-workflows/master/examples/coinflip.yaml).
+A steps template allows you to define your tasks in a series of steps. The structure of the template is a "list of lists". Outer lists will run sequentially and inner lists will run in parallel. If you want to run inner lists one by one, use the [Synchronization](fields.md#synchronization) feature. You can set a wide array of options to control execution, such as [`when:` clauses to conditionally execute a step](https://raw.githubusercontent.com/argoproj/argo-workflows/main/examples/coinflip.yaml).
 
 In this example `step1` runs first. Once it is completed, `step2a` and `step2b` will run in parallel:
 

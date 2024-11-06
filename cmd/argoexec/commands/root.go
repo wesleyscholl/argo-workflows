@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/argoproj/pkg/cli"
@@ -49,8 +50,8 @@ func NewRootCommand() *cobra.Command {
 	command := cobra.Command{
 		Use:   CLIName,
 		Short: "argoexec is the executor sidecar to workflow containers",
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.HelpFunc()(cmd, args)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			initConfig()
@@ -98,7 +99,18 @@ func initExecutor() *executor.WorkflowExecutor {
 	}
 
 	tmpl := &wfv1.Template{}
-	checkErr(json.Unmarshal([]byte(os.Getenv(common.EnvVarTemplate)), tmpl))
+	envVarTemplateValue, ok := os.LookupEnv(common.EnvVarTemplate)
+	// wait container reads template from the file written by init container, instead of from environment variable.
+	if !ok {
+		data, err := os.ReadFile(varRunArgo + "/template")
+		checkErr(err)
+		envVarTemplateValue = string(data)
+	} else if envVarTemplateValue == common.EnvVarTemplateOffloaded {
+		data, err := os.ReadFile(filepath.Join(common.EnvConfigMountPath, common.EnvVarTemplate))
+		checkErr(err)
+		envVarTemplateValue = string(data)
+	}
+	checkErr(json.Unmarshal([]byte(envVarTemplateValue), tmpl))
 
 	includeScriptOutput := os.Getenv(common.EnvVarIncludeScriptOutput) == "true"
 	deadline, err := time.Parse(time.RFC3339, os.Getenv(common.EnvVarDeadline))
@@ -118,6 +130,7 @@ func initExecutor() *executor.WorkflowExecutor {
 		podName,
 		types.UID(os.Getenv(common.EnvVarPodUID)),
 		os.Getenv(common.EnvVarWorkflowName),
+		types.UID(os.Getenv(common.EnvVarWorkflowUID)),
 		os.Getenv(common.EnvVarNodeID),
 		namespace,
 		cre,
@@ -132,7 +145,7 @@ func initExecutor() *executor.WorkflowExecutor {
 		WithField("version", version.String()).
 		WithField("namespace", namespace).
 		WithField("podName", podName).
-		WithField("template", wfv1.MustMarshallJSON(&wfExecutor.Template)).
+		WithField("templateName", wfExecutor.Template.Name).
 		WithField("includeScriptOutput", includeScriptOutput).
 		WithField("deadline", deadline).
 		Info("Executor initialized")

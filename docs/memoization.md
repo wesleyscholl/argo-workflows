@@ -32,18 +32,18 @@ kind: Workflow
 metadata:
    generateName: memoized-workflow-
 spec:
-   entrypoint: whalesay
+   entrypoint: print-message
    templates:
-      - name: whalesay
+      - name: print-message
         memoize:
            key: "{{inputs.parameters.message}}"
            maxAge: "10s"
            cache:
               configMap:
-                 name: whalesay-cache
+                 name: print-message-cache
 ```
 
-[Find a simple example for memoization here](https://github.com/argoproj/argo-workflows/blob/master/examples/memoize-simple.yaml).
+[Find a simple example for memoization here](https://github.com/argoproj/argo-workflows/blob/main/examples/memoize-simple.yaml).
 
 !!! Note
     In order to use memoization it is necessary to add the verbs `create` and `update` to the `configmaps` resource for the appropriate (cluster) roles. In the case of a cluster install the `argo-cluster-role` cluster role should be updated, whilst for a namespace install the `argo-role` role should be updated.

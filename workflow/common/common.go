@@ -34,8 +34,6 @@ const (
 	AnnotationKeyRBACRule           = workflow.WorkflowFullName + "/rbac-rule"
 	AnnotationKeyRBACRulePrecedence = workflow.WorkflowFullName + "/rbac-rule-precedence"
 
-	// AnnotationKeyOutputs is the pod metadata annotation key containing the container outputs
-	AnnotationKeyOutputs = workflow.WorkflowFullName + "/outputs"
 	// AnnotationKeyCronWfScheduledTime is the workflow metadata annotation key containing the time when the workflow
 	// was scheduled to run by CronWorkflow.
 	AnnotationKeyCronWfScheduledTime = workflow.WorkflowFullName + "/scheduled-time"
@@ -94,6 +92,11 @@ const (
 	LabelKeyOnExit = workflow.WorkflowFullName + "/on-exit"
 	// LabelKeyArtifactGCPodHash is a label applied to WorkflowTaskSets used by the Artifact Garbage Collection Pod
 	LabelKeyArtifactGCPodHash = workflow.WorkflowFullName + "/artifact-gc-pod"
+	// LabelKeyReportOutputsCompleted is a label applied to WorkflowTaskResults indicating whether all the outputs have been reported.
+	LabelKeyReportOutputsCompleted = workflow.WorkflowFullName + "/report-outputs-completed"
+
+	// LabelKeyCronWorkflowCompleted is a label applied to the cron workflow when the configured stopping condition is achieved
+	LabelKeyCronWorkflowCompleted = workflow.CronWorkflowFullName + "/completed"
 
 	// ExecutorArtifactBaseDir is the base directory in the init container in which artifacts will be copied to.
 	// Each artifact will be named according to its input name (e.g: /argo/inputs/artifacts/CODE)
@@ -154,6 +157,8 @@ const (
 	EnvVarProgressFile = "ARGO_PROGRESS_FILE"
 	// EnvVarDefaultRequeueTime is the default requeue time for Workflow Informers. For more info, see rate_limiters.go
 	EnvVarDefaultRequeueTime = "DEFAULT_REQUEUE_TIME"
+	// EnvVarPodStatusCaptureFinalizer is used to prevent pod garbage collected before argo captures its exit status
+	EnvVarPodStatusCaptureFinalizer = "ARGO_POD_STATUS_CAPTURE_FINALIZER"
 	// EnvAgentTaskWorkers is the number of task workers for the agent pod
 	EnvAgentTaskWorkers = "ARGO_AGENT_TASK_WORKERS"
 	// EnvAgentPatchRate is the rate that the Argo Agent will patch the Workflow TaskSet
@@ -161,6 +166,9 @@ const (
 
 	// Finalizer to block deletion of the workflow if deletion of artifacts fail for some reason.
 	FinalizerArtifactGC = workflow.WorkflowFullName + "/artifact-gc"
+
+	// Finalizer blocks the deletion of pods until the controller captures their status.
+	FinalizerPodStatus = workflow.WorkflowFullName + "/status"
 
 	// Variables that are added to the scope during template execution and can be referenced using {{}} syntax
 
@@ -235,6 +243,8 @@ const (
 	ServiceAccountTokenMountPath  = "/var/run/secrets/kubernetes.io/serviceaccount" //nolint:gosec
 	ServiceAccountTokenVolumeName = "exec-sa-token"                                 //nolint:gosec
 	SecretVolMountPath            = "/argo/secret"
+	EnvConfigMountPath            = "/argo/config"
+	EnvVarTemplateOffloaded       = "offloaded"
 
 	// CACertificatesVolumeMountName is the name of the secret that contains the CA certificates.
 	CACertificatesVolumeMountName = "argo-workflows-agent-ca-certificates"
