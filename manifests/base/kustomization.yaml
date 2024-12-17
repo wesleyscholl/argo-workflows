@@ -5,3 +5,8 @@ resources:
 - crds
 - workflow-controller
 - argo-server
+images:
+- name: wesmsl/argocli
+  newTag: latest
+- name: wesmsl/argoexec
+  newTag: latest
