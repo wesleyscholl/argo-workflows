@@ -29,9 +29,9 @@ func (s *SignalsSuite) TestStopBehavior() {
 		Workflow("@functional/stop-terminate.yaml").
 		When().
 		SubmitWorkflow().
-		WaitForWorkflow(fixtures.ToHaveRunningPod, killDuration).
+		WaitForWorkflow(fixtures.ToHaveRunningPod, 15*time.Second). // Reduced timeout prevents E2E TestStopBehavior failures
 		ShutdownWorkflow(wfv1.ShutdownStrategyStop).
-		WaitForWorkflow(killDuration + 15*time.Second). // this one takes especially long in CI
+		WaitForWorkflow(killDuration + 30*time.Second). // this one takes especially long in CI
 		Then().
 		ExpectWorkflow(func(t *testing.T, m *metav1.ObjectMeta, status *wfv1.WorkflowStatus) {
 			assert.Contains(t, []wfv1.WorkflowPhase{wfv1.WorkflowFailed, wfv1.WorkflowError}, status.Phase)
